@@ -1,0 +1,38 @@
+.km-panel { color: #181818; background: #fafaf7; max-width: 1300px; margin: 0 auto; padding: 20px; font: 14px/1.6 ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace; }
+.km-panel * { box-sizing: border-box; }
+.km-panel [hidden] { display: none !important; }
+.km-panel h1 { font-size: 24px; margin: 0; font-weight: 600; }
+.km-panel h2 { font-size: 17px; margin: 0 0 12px; }
+.km-panel p { margin: 8px 0; }
+.km-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.km-muted { color: #606060; font-size: 12px; }
+.km-notice { min-height: 22px; white-space: pre-wrap; }
+.km-error { color: #a52222; }
+.km-section { border-top: 1px solid #aaa; margin-top: 20px; padding-top: 14px; }
+.km-form { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 12px 16px; align-items: start; }
+.km-form label { display: flex; flex-direction: column; gap: 4px; }
+.km-panel input, .km-panel select, .km-panel button { font: inherit; color: inherit; border: 1px solid #888; border-radius: 0; background: #fff; padding: 6px 8px; min-width: 0; }
+.km-panel input, .km-panel select { width: 100%; }
+.km-panel input:disabled { background: #eee; color: #666; }
+.km-panel button { cursor: pointer; }
+.km-panel button:disabled { cursor: default; color: #888; background: #f0f0ed; }
+.km-panel :focus-visible { outline: 2px solid #555; outline-offset: 2px; }
+.km-form .km-check { flex-direction: row; align-items: center; padding-top: 28px; }
+.km-check input { width: auto; }
+.km-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.km-form > .km-actions { align-self: end; padding-top: 27px; }
+.km-search { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.km-search input { width: 300px; max-width: 100%; }
+.km-search select { width: auto; }
+.km-resume { border: 1px solid #aaa; padding: 8px 10px; margin-bottom: 14px; }
+.km-resume select { width: auto; max-width: 100%; margin: 0 8px; }
+.km-scroll { overflow-x: auto; margin: 12px 0; }
+.km-table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
+.km-table th, .km-table td { border: 1px solid #aaa; padding: 7px 9px; text-align: left; vertical-align: top; }
+.km-table th { font-weight: 500; background: #ededE8; white-space: nowrap; }
+.km-table td { overflow-wrap: anywhere; }
+.km-table button { padding: 2px 5px; margin: 3px 5px 0 0; white-space: nowrap; }
+.km-key-value { display: block; min-width: 140px; max-width: 310px; overflow-wrap: anywhere; user-select: text; }
+.km-cell-name { display: block; min-width: 100px; max-width: 240px; }
+.km-panel footer { border-top: 1px solid #aaa; margin-top: 24px; padding-top: 12px; }
+@media (max-width: 650px) { .km-panel { padding: 12px; font-size: 13px; } .km-header { align-items: flex-start; } .km-header button { white-space: nowrap; } .km-form { grid-template-columns: 1fr; } .km-form .km-check, .km-form > .km-actions { padding-top: 0; } .km-table { font-size: 12px; } .km-table th, .km-table td { padding: 5px 7px; } }

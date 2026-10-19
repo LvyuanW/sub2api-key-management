@@ -1,0 +1,8 @@
+.env
+service.env
+key-management
+*.exe
+state.json
+*.test
+coverage.out
+.DS_Store

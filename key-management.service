@@ -1,0 +1,27 @@
+[Unit]
+Description=Sub2API dedicated user and API key management
+After=network-online.target sub2api.service nginx.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+Group=root
+WorkingDirectory=/opt/sub2api-key-management
+EnvironmentFile=/etc/sub2api-key-management/service.env
+ExecStart=/opt/sub2api-key-management/key-management
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/sub2api-key-management
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

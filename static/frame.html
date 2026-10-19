@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="zh-CN" data-main-origin="{{MAIN_ORIGIN}}" data-admin-origin="{{ADMIN_ORIGIN}}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>API Key 管理</title>
+  <link rel="stylesheet" href="/__keymgr/style.css">
+  <script src="/__keymgr/app.js" defer></script>
+  <script src="/__keymgr/frame.js" defer></script>
+</head>
+<body>
+  <div id="keymgr-auth-gate">
+    <p id="keymgr-auth-status" role="status" aria-live="polite">正在验证主站管理员登录状态…</p>
+    <p><a href="{{MAIN_ORIGIN}}/login" target="_blank" rel="noopener noreferrer">在主站登录 / 刷新登录状态</a>，然后返回本页。</p>
+    <button id="keymgr-auth-retry" type="button">重新验证</button>
+  </div>
+  <main id="keymgr-panel" hidden></main>
+</body>
+</html>
