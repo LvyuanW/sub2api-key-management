@@ -231,6 +231,9 @@ func main() {
 		log.Fatal("cannot load management state")
 	}
 	manager := NewManager(upstream, store, master, client)
+	if helper := os.Getenv("KEY_MANAGEMENT_KEY_HELPER"); helper != "" {
+		manager.SetKeyStore(NewCommandKeyStore(helper))
+	}
 	app := &application{auth: auth, manager: manager, slots: make(chan struct{}, 16)}
 	server := &http.Server{Addr: listen, Handler: app, ReadHeaderTimeout: 10 * time.Second, ReadTimeout: 30 * time.Second, WriteTimeout: 10 * time.Minute, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 32768, ErrorLog: log.New(io.Discard, "", 0)}
 	stop := make(chan os.Signal, 1)

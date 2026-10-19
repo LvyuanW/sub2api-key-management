@@ -194,6 +194,14 @@ type tokenEntry struct {
 	Expires time.Time
 }
 
+// KeyStore supplies only the Key operations absent from sub2api's administrator
+// HTTP API. It never manages native user wallets, user roles, or concurrency.
+// A successful write includes acknowledgement of authentication-cache invalidation.
+type KeyStore interface {
+	Create(context.Context, ManagedRecord, string) (NativeKey, error)
+	Update(context.Context, ManagedRecord, string, map[string]any) error
+}
+
 type Manager struct {
 	upstream string
 	store    *StateStore
@@ -206,7 +214,11 @@ type Manager struct {
 	// waiting a minute. Production uses the native login limiter's one-minute window.
 	batchRetryDelay time.Duration
 	batchMaxRetries int
+	keyStore        KeyStore
 }
+
+// SetKeyStore is called once during application startup, before serving requests.
+func (m *Manager) SetKeyStore(store KeyStore) { m.keyStore = store }
 
 func NewManager(upstream string, store *StateStore, master []byte, client *http.Client) *Manager {
 	c := http.Client{Timeout: 20 * time.Second}
@@ -374,6 +386,14 @@ func (m *Manager) checkGroup(ctx context.Context, s *AdminSession, id int64) err
 }
 
 func (m *Manager) checkCarrierLogin(ctx context.Context, s *AdminSession) error {
+	if m.keyStore != nil {
+		if checker, ok := m.keyStore.(interface{ Check(context.Context) error }); ok {
+			if err := checker.Check(ctx); err != nil {
+				return managerError(503, "Key 存储或缓存连接检查失败，已停止创建充值用户")
+			}
+		}
+		return nil
+	}
 	var settings struct {
 		BackendMode *bool `json:"backend_mode_enabled"`
 		Turnstile   bool  `json:"turnstile_enabled"`
@@ -812,11 +832,25 @@ func (m *Manager) resumeRecord(ctx context.Context, s *AdminSession, record Mana
 		}
 		record.KeyID = keys[0].ID
 	}
-	token, err := m.ownerToken(ctx, s, record)
-	if err != nil {
-		return KeyView{}, err
+	var token string
+	if m.keyStore != nil {
+		// Create also acknowledges cache invalidation when recovering a row
+		// committed before a timeout. Existing native credit is never recreated.
+		key, err := m.keyStore.Create(ctx, record, m.apiKey(record))
+		if err != nil {
+			return KeyView{}, managerError(503, "Key 数据创建或缓存同步未确认完成，请重试原批次")
+		}
+		if key.ID <= 0 || key.UserID != record.UserID || key.Key != m.apiKey(record) || (record.KeyID > 0 && record.KeyID != key.ID) {
+			return KeyView{}, managerError(409, "独立 Key 的数据归属校验失败，已停止自动管理")
+		}
+		record.KeyID = key.ID
+	} else {
+		token, err = m.ownerToken(ctx, s, record)
+		if err != nil {
+			return KeyView{}, err
+		}
 	}
-	if record.KeyID == 0 {
+	if m.keyStore == nil && record.KeyID == 0 {
 		var key NativeKey
 		body := map[string]any{"name": record.Name, "group_id": record.GroupID, "custom_key": m.apiKey(record), "quota": 0}
 		if err := m.callOwner(ctx, s, record, token, "POST", "/api/v1/keys", body, &key, "km-create-"+record.Nonce); err != nil {
@@ -831,7 +865,19 @@ func (m *Manager) resumeRecord(ctx context.Context, s *AdminSession, record Mana
 	if err := m.saveRecord(record); err != nil {
 		return KeyView{}, err
 	}
-	if record.ExpiresAt != "" {
+	if m.keyStore != nil {
+		if record.ExpiresAt != "" {
+			if err := m.keyStore.Update(ctx, record, m.apiKey(record), map[string]any{"expires_at": record.ExpiresAt}); err != nil {
+				return KeyView{}, managerError(503, "Key 有效期写入或缓存同步未确认完成，请重试原批次")
+			}
+		}
+		// Group permissions remain in the official administrator service. Bind
+		// after all helper writes so even a same-group request synchronously
+		// clears the running sub2api process's L1 authentication cache.
+		if err := m.adminKeyGroup(ctx, s, record.KeyID, record.GroupID); err != nil {
+			return KeyView{}, err
+		}
+	} else if record.ExpiresAt != "" {
 		var key NativeKey
 		if err := m.callOwner(ctx, s, record, token, "PUT", fmt.Sprintf("/api/v1/keys/%d", record.KeyID), map[string]any{"expires_at": record.ExpiresAt}, &key, ""); err != nil {
 			return KeyView{}, err
@@ -842,6 +888,19 @@ func (m *Manager) resumeRecord(ctx context.Context, s *AdminSession, record Mana
 		return KeyView{}, err
 	}
 	return m.view(ctx, s, record)
+}
+
+func (m *Manager) adminKeyGroup(ctx context.Context, s *AdminSession, keyID, groupID int64) error {
+	var result struct {
+		APIKey NativeKey `json:"api_key"`
+	}
+	if err := m.call(ctx, s, s.Token, "PUT", fmt.Sprintf("/api/v1/admin/api-keys/%d", keyID), map[string]any{"group_id": groupID}, &result, ""); err != nil {
+		return err
+	}
+	if result.APIKey.ID != keyID || result.APIKey.GroupID == nil || *result.APIKey.GroupID != groupID {
+		return managerError(502, "主站分组更新响应无效，请重试原操作")
+	}
+	return nil
 }
 
 func (m *Manager) saveUpdate(operation ManagedUpdate) error {
@@ -950,7 +1009,7 @@ func (m *Manager) Update(ctx context.Context, s *AdminSession, keyID int64, req 
 		if req.Name != nil {
 			body["name"] = *req.Name
 		}
-		if req.GroupID != nil {
+		if req.GroupID != nil && m.keyStore == nil {
 			body["group_id"] = *req.GroupID
 		}
 		if req.ExpiresAt != nil {
@@ -959,13 +1018,36 @@ func (m *Manager) Update(ctx context.Context, s *AdminSession, keyID int64, req 
 		if req.Status != nil {
 			body["status"] = *req.Status
 		}
+		barrierGroup := int64(0)
+		if req.GroupID != nil {
+			barrierGroup = *req.GroupID
+		} else if view.GroupID != nil {
+			barrierGroup = *view.GroupID
+		}
+		if m.keyStore != nil && len(body) > 0 && barrierGroup <= 0 {
+			return KeyView{}, managerError(409, "Key 当前未绑定分组，请选择有效分组后重试")
+		}
 		if len(body) > 0 {
-			token, err := m.ownerToken(ctx, s, record)
-			if err != nil {
-				return KeyView{}, err
+			if m.keyStore != nil {
+				if err := m.keyStore.Update(ctx, record, m.apiKey(record), body); err != nil {
+					return KeyView{}, managerError(503, "Key 数据修改或缓存同步未确认完成，请重试原操作")
+				}
+			} else {
+				token, err := m.ownerToken(ctx, s, record)
+				if err != nil {
+					return KeyView{}, err
+				}
+				var key NativeKey
+				if err := m.callOwner(ctx, s, record, token, "PUT", fmt.Sprintf("/api/v1/keys/%d", keyID), body, &key, ""); err != nil {
+					return KeyView{}, err
+				}
 			}
-			var key NativeKey
-			if err := m.callOwner(ctx, s, record, token, "PUT", fmt.Sprintf("/api/v1/keys/%d", keyID), body, &key, ""); err != nil {
+		}
+		if m.keyStore != nil && (req.GroupID != nil || len(body) > 0) {
+			// Redis publication only confirms receipt, not that the local L1
+			// subscriber has processed it. The official same-group write clears
+			// this process's L1 before KeyDone or any wallet mutation advances.
+			if err := m.adminKeyGroup(ctx, s, keyID, barrierGroup); err != nil {
 				return KeyView{}, err
 			}
 		}

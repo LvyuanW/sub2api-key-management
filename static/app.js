@@ -213,7 +213,7 @@
       if (state.batchBusy || !state.lastBatch) return;
       state.batchBusy = true; get('create-submit').disabled = true; get('retry').disabled = true; get('resume').disabled = true;
       get('batch-actions').hidden = false; get('retry-note').hidden = false;
-      message('batch-message', '批量处理中；主站登录频率限制可能需要数分钟，请勿新建相同批次。请求编号 ' + state.lastBatch.request_id + '。');
+      message('batch-message', '批量处理中；主站请求频率限制可能需要数分钟，请勿新建相同批次。请求编号 ' + state.lastBatch.request_id + '。');
       try {
         const data = await api('/keys/batch', {method: 'POST', body: state.lastBatch});
         renderBatch(data); await loadKeys();

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -26,6 +27,9 @@ type nativeFixture struct {
 	balanceWrites     int
 	userWrites        int
 	keyWrites         int
+	groupWrites       int
+	lastBarrierStatus string
+	failGroupOnce     bool
 	logins            int
 	loginLimit        int
 	loginLimitOnce    bool
@@ -108,6 +112,29 @@ func (f *nativeFixture) serveHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	if r.URL.Path == "/api/v1/admin/groups/all" {
 		nativeOK(w, []Group{{ID: 1, Name: "Wallet", Status: "active", SubscriptionType: "standard"}, {ID: 2, Name: "Other wallet", Status: "active", SubscriptionType: "standard"}, {ID: 3, Status: "active", SubscriptionType: "subscription"}, {ID: 4, Status: "disabled", SubscriptionType: "standard"}})
+		return
+	}
+	if strings.HasPrefix(r.URL.Path, "/api/v1/admin/api-keys/") && r.Method == "PUT" {
+		id, _ := strconv.ParseInt(strings.TrimPrefix(r.URL.Path, "/api/v1/admin/api-keys/"), 10, 64)
+		key, ok := f.keys[id]
+		if !ok {
+			nativeFailure(w, 404)
+			return
+		}
+		if len(body) != 1 {
+			f.t.Error("administrator key route should only change the group")
+		}
+		f.lastBarrierStatus = key.Status
+		if f.failGroupOnce {
+			f.failGroupOnce = false
+			nativeFailure(w, 500)
+			return
+		}
+		group := int64(body["group_id"].(float64))
+		key.GroupID = &group
+		f.groupWrites++
+		f.keys[id] = key
+		nativeOK(w, map[string]any{"api_key": key, "auto_granted_group_access": false})
 		return
 	}
 	if r.URL.Path == "/api/v1/admin/users" {
@@ -596,5 +623,200 @@ func TestManagerPendingBatchRecoveryAndLoginPreflight(t *testing.T) {
 	pending, err = m.PendingBatches(context.Background(), s)
 	if err != nil || len(pending) != 0 {
 		t.Fatalf("finished batch still pending: %+v %v", pending, err)
+	}
+}
+
+type fixtureKeyStore struct {
+	f             *nativeFixture
+	checks        int
+	creates       int
+	updates       int
+	failCheck     bool
+	failCreateAck bool
+	failUpdateAck bool
+}
+
+func (a *fixtureKeyStore) Check(context.Context) error {
+	a.checks++
+	if a.failCheck {
+		return errors.New("private connection detail must not reach the browser")
+	}
+	return nil
+}
+
+func (a *fixtureKeyStore) Create(_ context.Context, record ManagedRecord, credential string) (NativeKey, error) {
+	user, ok := a.f.users[record.UserID]
+	if !ok || user.Email != managedEmail(record) || user.Notes != managedNotes(record) || user.Role != "user" {
+		return NativeKey{}, errors.New("ownership mismatch")
+	}
+	var result NativeKey
+	for _, key := range a.f.keys {
+		if key.UserID == record.UserID {
+			if key.Key != credential || (record.KeyID != 0 && record.KeyID != key.ID) {
+				return NativeKey{}, errors.New("foreign key")
+			}
+			result = key
+		}
+	}
+	if result.ID == 0 {
+		a.creates++
+		group := record.GroupID
+		result = NativeKey{ID: int64(1000 + a.creates), UserID: record.UserID, Key: credential, Name: record.Name, Status: "active", GroupID: &group, Quota: 0, CreatedAt: time.Now().UTC()}
+		a.f.keys[result.ID] = result
+	}
+	if a.failCreateAck {
+		a.failCreateAck = false
+		return NativeKey{}, errors.New("cache acknowledgement failed after SQL commit")
+	}
+	return result, nil
+}
+
+func (a *fixtureKeyStore) Update(_ context.Context, record ManagedRecord, credential string, fields map[string]any) error {
+	key, ok := a.f.keys[record.KeyID]
+	if !ok || key.UserID != record.UserID || key.Key != credential {
+		return errors.New("key ownership mismatch")
+	}
+	a.updates++
+	for name, value := range fields {
+		switch name {
+		case "name":
+			key.Name = value.(string)
+		case "status":
+			key.Status = value.(string)
+		case "expires_at":
+			key.ExpiresAt = nil
+			if raw := value.(string); raw != "" {
+				expiry, err := time.Parse(time.RFC3339, raw)
+				if err != nil {
+					return err
+				}
+				key.ExpiresAt = &expiry
+			}
+		default:
+			a.f.t.Errorf("database adapter must not change group, user, quota, or wallet fields: %s", name)
+			return errors.New("forbidden field")
+		}
+	}
+	a.f.keys[key.ID] = key
+	if a.failUpdateAck {
+		a.failUpdateAck = false
+		return errors.New("cache acknowledgement failed after SQL commit")
+	}
+	return nil
+}
+
+func TestManagerKeyAdapterPreservesBackendModeAndNativeFinance(t *testing.T) {
+	m, f, s := newManagerFixture(t)
+	f.backendMode, f.captchaEnabled = true, true
+	adapter := &fixtureKeyStore{f: f}
+	m.SetKeyStore(adapter)
+	key := createOne(t, m, s)
+	if f.logins != 0 || f.keyCreates != 0 || f.keyWrites != 0 || adapter.checks != 1 || f.groupWrites != 1 {
+		t.Fatal("adapter mode must preserve administrator-only login and use native administrator group binding")
+	}
+	name, status, expiry, group, concurrency := "changed", "inactive", "", int64(2), 9
+	req := UpdateRequest{RequestID: "adapter-edit-0001", Name: &name, Status: &status, ExpiresAt: &expiry, GroupID: &group, Concurrency: &concurrency, BalanceAction: &BalanceAction{Mode: "add", Amount: 2}}
+	view, err := m.Update(context.Background(), s, key.ID, req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if view.WalletBalance != 7 || view.ConcurrencyLimit != 9 || view.Status != "inactive" || view.ExpiresAt != nil || view.GroupID == nil || *view.GroupID != 2 {
+		t.Fatalf("adapter edit: %+v", view)
+	}
+	if f.logins != 0 || f.keyCreates != 0 || f.keyWrites != 0 || f.balanceWrites != 1 || f.groupWrites != 2 || adapter.creates != 1 {
+		t.Fatal("adapter bypassed official wallet/user/group APIs or used a native ordinary-user session")
+	}
+	if !f.backendMode || !f.captchaEnabled {
+		t.Fatal("adapter changed project authentication settings")
+	}
+}
+
+func TestManagerKeyAdapterPreflightAndAcknowledgedRecovery(t *testing.T) {
+	m, f, s := newManagerFixture(t)
+	f.backendMode = true
+	adapter := &fixtureKeyStore{f: f, failCheck: true}
+	m.SetKeyStore(adapter)
+	req := batchInput("adapter-create-0001", 1)
+	if _, err := m.Batch(context.Background(), s, req); err == nil || strings.Contains(err.Error(), "private") {
+		t.Fatal("adapter preflight failure must be sanitized")
+	}
+	if f.userCreates != 0 {
+		t.Fatal("adapter preflight must precede funded native user creation")
+	}
+	adapter.failCheck, adapter.failCreateAck = false, true
+	first, err := m.Batch(context.Background(), s, req)
+	if err != nil || first.Failed != 1 || adapter.creates != 1 || f.userCreates != 1 {
+		t.Fatalf("expected recoverable cache failure: %+v %v", first, err)
+	}
+	second, err := m.Batch(context.Background(), s, req)
+	if err != nil || second.Succeeded != 1 || adapter.creates != 1 || f.userCreates != 1 {
+		t.Fatalf("cache retry duplicated native resources: %+v %v", second, err)
+	}
+	key := *second.Items[0].Key
+	status := "inactive"
+	update := UpdateRequest{RequestID: "adapter-cache-edit-0001", Status: &status, BalanceAction: &BalanceAction{Mode: "add", Amount: 2}}
+	adapter.failUpdateAck = true
+	if _, err := m.Update(context.Background(), s, key.ID, update); err == nil {
+		t.Fatal("unacknowledged cache invalidation accepted")
+	}
+	state, err := m.store.Snapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(state.Updates) != 1 || state.Updates[0].KeyDone || f.balanceWrites != 0 {
+		t.Fatal("KeyDone or financial mutation advanced before key cache acknowledgement")
+	}
+	view, err := m.Update(context.Background(), s, key.ID, update)
+	if err != nil || view.Status != "inactive" || view.WalletBalance != 7 || f.balanceWrites != 1 {
+		t.Fatalf("idempotent key cache recovery: %+v %v", view, err)
+	}
+	if f.logins != 0 || f.keyCreates != 0 || f.keyWrites != 0 {
+		t.Fatal("adapter recovery used an ordinary-user authentication/API path")
+	}
+}
+
+func TestManagerKeyAdapterRequiresNativeL1BarrierBeforeFinishing(t *testing.T) {
+	m, f, s := newManagerFixture(t)
+	f.backendMode = true
+	adapter := &fixtureKeyStore{f: f}
+	m.SetKeyStore(adapter)
+	key := createOne(t, m, s)
+	initialBindings := f.groupWrites
+	status := "inactive"
+	req := UpdateRequest{RequestID: "adapter-l1-barrier-0001", Status: &status, BalanceAction: &BalanceAction{Mode: "add", Amount: 2}}
+	f.failGroupOnce = true
+	if _, err := m.Update(context.Background(), s, key.ID, req); err == nil {
+		t.Fatal("failed native L1 barrier was treated as completed")
+	}
+	if f.lastBarrierStatus != "inactive" || f.keys[key.ID].Status != "inactive" {
+		t.Fatal("native L1 barrier must run after helper status mutation")
+	}
+	state, err := m.store.Snapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(state.Updates) != 1 || state.Updates[0].KeyDone || state.Updates[0].Done || f.balanceWrites != 0 {
+		t.Fatal("operation or money advanced without native L1 acknowledgement")
+	}
+	view, err := m.Update(context.Background(), s, key.ID, req)
+	if err != nil || view.Status != "inactive" || view.WalletBalance != 7 {
+		t.Fatalf("native L1 barrier retry: %+v %v", view, err)
+	}
+	if f.groupWrites != initialBindings+1 || f.balanceWrites != 1 || view.GroupID == nil || *view.GroupID != 1 {
+		t.Fatal("same-group cache barrier must preserve binding and credit exactly once")
+	}
+	if _, err := m.Update(context.Background(), s, key.ID, req); err != nil {
+		t.Fatal(err)
+	}
+	if f.balanceWrites != 1 || f.groupWrites != initialBindings+1 {
+		t.Fatal("completed receipt repeated a cache barrier or a credit")
+	}
+	// Expiry-only changes also pass the same-group native barrier.
+	expires := "2032-05-06T07:08:09Z"
+	if _, err := m.Update(context.Background(), s, key.ID, UpdateRequest{RequestID: "adapter-l1-expiry-0001", ExpiresAt: &expires}); err != nil {
+		t.Fatal(err)
+	}
+	if f.groupWrites != initialBindings+2 {
+		t.Fatal("expiry-only update omitted the synchronous native cache barrier")
 	}
 }
