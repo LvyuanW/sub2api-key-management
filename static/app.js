@@ -231,7 +231,7 @@
     function editKey(key) {
       if (state.editBusy) return;
       state.editKey = key;
-      get('edit-identity').textContent = '#' + key.id + ' / ' + (key.name || '—') + ' / 承载用户 #' + (key.managed_user_id || key.user_id || '—') + ' / 当前余额 USD ' + money(key.wallet_balance) + ' / 当前分组：' + groupLabel(key) + ' / 当前状态：' + statusName(key.status);
+      get('edit-identity').textContent = '#' + key.id + ' / ' + (key.name || '—') + ' / 承载用户 #' + (key.managed_user_id || key.user_id || '—') + ' / 当前余额 ¥ ' + money(key.wallet_balance) + ' / 当前分组：' + groupLabel(key) + ' / 当前状态：' + statusName(key.status);
       get('edit-group').value = 'keep'; get('edit-balance-mode').value = 'add'; get('edit-balance-amount').value = '';
       get('edit-never').checked = !key.expires_at; get('edit-expiry').value = key.expires_at ? chinaInput(key.expires_at) : '';
       get('edit-expiry').disabled = get('edit-never').checked;
@@ -272,7 +272,7 @@
     on(get('download-batch'), 'click', () => {
       const keys = successfulBatchKeys(); if (!keys.length) return;
       const csvCell = value => '"' + String(value == null ? '' : value).replace(/"/g, '""') + '"';
-      const rows = [['ID', '名称', 'API Key', '承载用户 ID', '分组 ID', '余额 USD', '并发上限', '到期时间 UTC'], ...keys.map(key => [key.id, /^(?:\s*[=+@-]|[\t\r])/.test(key.name || '') ? "'" + key.name : key.name, key.key, key.managed_user_id || key.user_id, key.group_id, key.wallet_balance, key.concurrency_limit, key.expires_at || '永不过期'])];
+      const rows = [['ID', '名称', 'API Key', '承载用户 ID', '分组 ID', '余额 ¥', '并发上限', '到期时间 UTC'], ...keys.map(key => [key.id, /^(?:\s*[=+@-]|[\t\r])/.test(key.name || '') ? "'" + key.name : key.name, key.key, key.managed_user_id || key.user_id, key.group_id, key.wallet_balance, key.concurrency_limit, key.expires_at || '永不过期'])];
       const blob = new Blob(['\ufeff' + rows.map(row => row.map(csvCell).join(',')).join('\r\n')], {type: 'text/csv;charset=utf-8'});
       const url = URL.createObjectURL(blob), link = makeElement('a'); link.href = url; link.download = 'api-keys-' + (state.lastBatch ? state.lastBatch.request_id : 'batch') + '.csv'; panel.append(link); link.click(); link.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000);
       message('notice', '已生成本批 CSV，请妥善保存其中的完整 Key。');

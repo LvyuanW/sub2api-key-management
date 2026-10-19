@@ -673,7 +673,7 @@ func (m *Manager) Batch(ctx context.Context, s *AdminSession, req BatchRequest) 
 	result := BatchResponse{RequestID: req.RequestID, Items: []BatchItem{}}
 	if !validRequestID(req.RequestID) || req.Count < 1 || req.Count > 100 || !validName(req.NamePrefix) || !validName(req.NamePrefix+"-100") || len([]rune(req.NamePrefix)) > 80 ||
 		req.GroupID <= 0 || !validMoney(req.Quota) || !validExpiry(req.ExpiresAt) || req.Concurrency < 1 || req.Concurrency > 10000 {
-		return result, managerError(400, "批量参数无效：数量 1–100，并发 1–10000，金额非负且不超过 10 亿美元")
+		return result, managerError(400, "批量参数无效：数量 1–100，并发 1–10000，金额非负且不超过 10 亿 ¥")
 	}
 	m.opMu.Lock()
 	defer m.opMu.Unlock()

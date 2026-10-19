@@ -1,6 +1,6 @@
 <main id="keymgr-management" class="km-panel">
   <header class="km-header">
-    <div><h1>API Key 管理</h1><p class="km-muted">sub2api / 每 Key 独立用户 / 金额 USD / 时间 Asia/Shanghai</p></div>
+    <div><h1>API Key 管理</h1><p class="km-muted">sub2api / 每 Key 独立用户 / 金额 ¥ / 时间 Asia/Shanghai</p></div>
     <button id="km-refresh" type="button">刷新数据</button>
   </header>
   <p id="km-account" class="km-muted">读取管理员信息…</p>
@@ -18,14 +18,12 @@
       <label>名称前缀<input id="km-prefix" type="text" value="key" maxlength="70" required></label>
       <label>数量<input id="km-count" type="number" value="1" min="1" max="100" step="1" required></label>
       <label>绑定分组<select id="km-create-group" required><option value="">读取分组…</option></select></label>
-      <label>初始余额 / USD<input id="km-create-quota" type="number" value="0" min="0" step="0.00000001" required><span class="km-muted">每个 Key 对应独立用户的钱包初始余额</span></label>
+      <label>初始余额 / ¥<input id="km-create-quota" type="number" value="0" min="0" step="0.00000001" required><span class="km-muted">每个 Key 对应独立用户的钱包初始余额</span></label>
       <label>到期时间（北京时间）<input id="km-create-expiry" type="datetime-local" step="60"></label>
       <label class="km-check"><input id="km-create-never" type="checkbox" checked>永不过期</label>
       <label id="km-create-concurrency-field">每个 Key 并发上限<input id="km-create-concurrency" type="number" value="1" min="1" max="10000" step="1" required><span class="km-muted">由独立承载用户的原生并发限制执行</span></label>
       <div class="km-actions"><button id="km-create-submit" type="submit">创建</button></div>
     </form>
-    <p class="km-muted">仅显示钱包计费分组；订阅分组暂不适用此创建方式。</p>
-    <p class="km-muted">每项独立处理，可能部分成功。受主站创建数量和频率限制；失败项会逐项列出。</p>
     <p id="km-batch-message" role="status" aria-live="polite">尚未创建。</p>
     <div id="km-batch-actions" class="km-actions" hidden>
       <button id="km-retry" type="button">重试同一批请求</button>
@@ -48,7 +46,7 @@
     </form>
     <p id="km-list-message" role="status" aria-live="polite">读取 Key…</p>
     <div class="km-scroll">
-      <table class="km-table"><thead><tr><th>ID / 名称</th><th>分组</th><th>状态</th><th>余额 USD / 并发</th><th>到期时间</th><th>Key</th><th>操作</th></tr></thead><tbody id="km-key-rows"></tbody></table>
+      <table class="km-table"><thead><tr><th>ID / 名称</th><th>分组</th><th>状态</th><th>余额 ¥ / 并发</th><th>到期时间</th><th>Key</th><th>操作</th></tr></thead><tbody id="km-key-rows"></tbody></table>
     </div>
     <div class="km-actions"><button id="km-prev" type="button">上一页</button><span id="km-page">第 1 页</span><button id="km-next" type="button">下一页</button></div>
   </section>
@@ -59,7 +57,7 @@
     <form id="km-edit" class="km-form" autocomplete="off">
       <label>绑定分组<select id="km-edit-group"><option value="keep">保持当前分组</option></select></label>
       <label>余额操作<select id="km-edit-balance-mode"><option value="add">增加余额</option><option value="subtract">扣减余额</option><option value="set">设置为指定余额</option></select><span class="km-muted">增加 / 扣减使用差额；设置将钱包余额改为输入值</span></label>
-      <label>余额变更金额 / USD<input id="km-edit-balance-amount" type="number" min="0" step="0.00000001" placeholder="留空则不修改余额"><span class="km-muted">金额必须非负；设置为 0 可清空余额</span></label>
+      <label>余额变更金额 / ¥<input id="km-edit-balance-amount" type="number" min="0" step="0.00000001" placeholder="留空则不修改余额"><span class="km-muted">金额必须非负；设置为 0 可清空余额</span></label>
       <label>到期时间（北京时间）<input id="km-edit-expiry" type="datetime-local" step="60"></label>
       <label class="km-check"><input id="km-edit-never" type="checkbox">永不过期</label>
       <label>启用状态<select id="km-edit-status"><option value="keep">保持原状态</option><option value="active">启用</option><option value="inactive">停用</option></select></label>
@@ -69,5 +67,4 @@
     <p id="km-edit-message" role="status" aria-live="polite"></p>
   </section>
 
-  <footer class="km-muted">每个 Key 对应独立用户，由当前管理员统一管理。余额和并发属于承载用户，Key 总额度不另限制。Key 仅保留在当前页面内存中，不写入浏览器存储；已有 Key 默认遮盖，退出后清空页面数据。使用仍受分组、到期时间及主站限制影响。</footer>
 </main>
