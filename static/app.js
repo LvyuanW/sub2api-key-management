@@ -271,11 +271,18 @@
     on(get('copy-batch'), 'click', () => copy(successfulBatchKeys().map(key => key.key).join('\n')));
     on(get('download-batch'), 'click', () => {
       const keys = successfulBatchKeys(); if (!keys.length) return;
-      const csvCell = value => '"' + String(value == null ? '' : value).replace(/"/g, '""') + '"';
-      const rows = [['ID', '名称', 'API Key', '承载用户 ID', '分组 ID', '余额 ¥', '并发上限', '到期时间 UTC'], ...keys.map(key => [key.id, /^(?:\s*[=+@-]|[\t\r])/.test(key.name || '') ? "'" + key.name : key.name, key.key, key.managed_user_id || key.user_id, key.group_id, key.wallet_balance, key.concurrency_limit, key.expires_at || '永不过期'])];
-      const blob = new Blob(['\ufeff' + rows.map(row => row.map(csvCell).join(',')).join('\r\n')], {type: 'text/csv;charset=utf-8'});
-      const url = URL.createObjectURL(blob), link = makeElement('a'); link.href = url; link.download = 'api-keys-' + (state.lastBatch ? state.lastBatch.request_id : 'batch') + '.csv'; panel.append(link); link.click(); link.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000);
-      message('notice', '已生成本批 CSV，请妥善保存其中的完整 Key。');
+      const prefix = String(state.lastBatch && state.lastBatch.name_prefix || 'key').replace(/[\\/:*?"<>|\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/g, '_').trim();
+      let filenamePrefix = '';
+      const encoder = new TextEncoder();
+      for (const character of prefix) {
+        if (encoder.encode(filenamePrefix + character).length > 200) break;
+        filenamePrefix += character;
+      }
+      filenamePrefix = filenamePrefix.replace(/[. ]+$/g, '') || 'key';
+      const filename = chinaInput(new Date()).slice(0, 10) + '-' + filenamePrefix + '-' + keys.length + '.txt';
+      const blob = new Blob([keys.map(key => key.key).join('\r\n') + '\r\n'], {type: 'text/plain;charset=utf-8'});
+      const url = URL.createObjectURL(blob), link = makeElement('a'); link.href = url; link.download = filename; panel.append(link); link.click(); link.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+      message('notice', '已生成 ' + filename + '，每行一个 Key。');
     });
     on(get('clear-batch'), 'click', () => {
       if (state.batchBusy) { message('batch-message', '本批请求仍在进行，请等待完成后清空。', true); return; }
